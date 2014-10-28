@@ -1,99 +1,182 @@
 // Shell.cpp : Defines the entry point for the console application.
 //
-
+#ifdef WINDOWS
+	#include "stdafx.h"
+#endif
 #include "Shell.h"
-#include <curses.h>
+//#define _XOPEN_SOURCE
 
 using namespace std;
 
-static const char*  promptString = "xssh>> ";
-vector<string> arg_vec;
-string command;
+extern vector<string> arg_vec;
+extern deque<string> commandList;
+extern string command;
+extern map<string, string> env;
+extern char* dPath;
+extern pid_t recentPid;
+char* hPath;
 
-void parse_command(string c){
-	istringstream iss(c);
-	string result;
-	while (iss >> result){
-		arg_vec.push_back(result);
+static const char*  promptString = "xssh>> ";
+static volatile sig_atomic_t sig_caught = 0;
+void(*int_handler)(int);
+void(*abrt_handler)(int);
+void(*alrm_handler)(int);
+void(*hup_handler)(int);
+void(*term_handler)(int);
+void(*quit_handler)(int);
+void(*stop_handler)(int);
+void(*cont_handler)(int);
+void(*usr1_handler)(int);
+void(*usr2_handler)(int);
+
+void sig_handler(int signum){
+	if (signum == SIGINT){
+		int_handler = signal(SIGINT, sig_handler);
+        if(recentPid>0)
+		    kill(recentPid, signum);
+        //cout << endl;
 	}
+	if (signum == SIGABRT){
+		abrt_handler = (SIGABRT, sig_handler);
+	}
+	if (signum == SIGTERM){
+		term_handler = signal(SIGTERM, sig_handler);
+	}
+	if (signum == SIGALRM){
+		alrm_handler = signal(SIGALRM, sig_handler);
+	}
+    if (signum == SIGQUIT){
+        quit_handler = signal(SIGQUIT, sig_handler);
+        kill(recentPid, signum);
+        cout << endl;
+    }
+    if (signum == SIGCONT){
+        cont_handler = signal(SIGCONT, sig_handler);
+        if(recentPid>0)
+            kill(recentPid, signum);
+        cout << endl;
+    }
+    if (signum == SIGSTOP){
+        stop_handler = signal(SIGSTOP, sig_handler);
+        if(recentPid>0)
+            kill(recentPid, signum);
+        cout << endl;
+    }
+    if (signum == SIGUSR1){
+        usr1_handler = signal(SIGUSR1, sig_handler);
+    }
+    if (signum == SIGUSR2){
+        usr2_handler = signal(SIGUSR2, sig_handler);
+    }
+    if (signum == SIGHUP){
+        hup_handler = signal(SIGHUP, sig_handler);
+    }
+	
 }
 
-bool isWord(string s){
-	int count = 0;
-	for (char c : s){
-		if (isalpha(c)){
-			count++;
-		}
-	}
-	if (count == 0){
-		return false;
-	}
-	else {
-		return true;
-	}
+void initialize(){
+    // shell
+    char* pat = getenv("PWD");
+    string s(pat);
+    env.insert(pair<string, string>("home", s));
+    s+="/xssh";
+    env.insert(pair<string, string>("shell", s));
+
+    // Path
+    char* pat2 = getenv("PATH");
+    string s2(pat2);
+    env.insert(pair<string, string>("PATH", s2));
+
+    //Parent
+    env.insert(pair<string, string>("parent", s));
+
+
+
+}
+
+bool checkInputParams(int argc, char * argv[]){
+    bool hasParam = false;
+
+    for (int i = 0; i < argc; i++){
+        char * flag = "-f";
+        if (strcmp(flag, argv[i])==0){
+            hasParam = true;
+            int pipes[2];
+            pipe(pipes);
+            pid_t pid;
+
+            pipes[0] = open(argv[i+1], O_RDONLY);
+            dup2(pipes[0], 0); // dup into stdin
+
+            close(pipes[0]);
+            close(pipes[1]);
+            fflush(stdout);
+        }
+    }
+
+    return hasParam;
 }
 
 int main(int argc, char * argv[])
-{
+{	
+	hPath = getenv("PWD");
+	int_handler = signal(SIGINT, sig_handler);
+	abrt_handler = signal(SIGABRT, sig_handler);
+	term_handler = signal(SIGTERM, sig_handler);
+	alrm_handler = signal(SIGALRM, sig_handler);
+    quit_handler = signal(SIGQUIT, sig_handler);
+    cont_handler = signal(SIGCONT, sig_handler);
+    stop_handler = signal(SIGSTOP, sig_handler);
+    usr1_handler = signal(SIGUSR1, sig_handler);
+    usr2_handler = signal(SIGUSR2, sig_handler);
+    hup_handler = signal(SIGHUP, sig_handler);
+
+    initialize();
+
 	while (1){
+		cin.clear();
 		printf("%s", promptString);
 		fflush(stdout);
+
+        checkInputParams(argc,argv);
+
 		getline(cin, command);
+        // Utilizing label to be used for the repeat command.
+        label:
+		if (command.length() < 1) {
+            continue;
+        }
 		parse_command(command);
-		if (arg_vec.size() <= 0){
-			continue;
-		}
-		// environ, clr, dir, help, cause
-		if (arg_vec.size() == 1){
-			string com = arg_vec[0];
-			if (com == "environ"){
 
+		if (built_in_command(arg_vec[0])){
+			int result = exe(arg_vec);
+			if (result == Pause){
+                raise(SIGSTOP);
+                cin.clear();
+                string temp;
+                getline(cin, temp);
+                while (command != "") {
+                    getline(cin, temp);
+                }
+                raise(SIGCONT);
+                continue;
 			}
-			if (com == "pause"){
+			else if (result == Repeat){
+                arg_vec.clear();
+                goto label;
+            }
+            else if (result != Done){
+				return result;
+			}
+			else {
+				arg_vec.clear();
+				continue; 
+			}
+		} else {
+            checkPipesNumber(arg_vec);
+        }
 
-			}
-			if (com == "clr"){
-				  clear();
-				   int n;
-				   for (n = 0; n < 10; n++)
-				     printf( "\n\n\n\n\n\n\n\n\n\n" );
-				// for (int i = 1; i < rows; i++){
-				// 	printf("\n");
-				// }
-				// while (1){
-				// 	printf("%s", promptString);
-				// 	fflush(stdout);
-				// 	getline(cin, command);
-				// 	parse_command(command);
-				// }
-				//SetConsoleCursorPosition(hStdOut, homeCoords);
-			}
-		}
-		// show W, unset W1, unexport W, chdir W, *exit I, wait I, *echo <comment>, history n
-		if (arg_vec.size() == 2){
-			string com = arg_vec[0];
-			string com2 = arg_vec[1];
-			cout << "com1  " << com << "com2  " << com2 << endl;
-			string::const_iterator it = com2.begin();
-			if (com == "exit" && isdigit(*it)){
-				int value;
-				istringstream conv(com2);
-				conv >> value;
-				return value;
-			}
-			if (com == "echo"){
-				cout << com2 << endl;
-			}
-			if (com == "show" && isWord(com2)){
-
-			}
-		}
-		/*if (built_in_command()){
-
-		}*/
-		//cout << "size is " << arg_vec.size() << endl;
 		arg_vec.clear();
-		cin.clear();
 	}
 
 	return 0;
