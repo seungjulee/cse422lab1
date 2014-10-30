@@ -12,7 +12,10 @@ extern char * hPath;
 extern pid_t recentPid;
 extern pid_t waitingPid;
 extern int status;
+extern bool hasAmp;
+extern bool xFlag;
 char * dPath;
+bool isExit;
 
 bool isWord(string s){
 	int count = 0;
@@ -49,15 +52,26 @@ void addCommand(string s){
 }
 
 void parse_command(string c){
+
 	istringstream iss(c);
 	string result;
+    isExit = false;
 	while (iss >> result){
         if (result == "$$"){
-            result = getpid();
+            std::string intToString = std::to_string(getpid());
+            result = intToString;
+            if (xFlag)
+                cout << "$$ is " << result << endl;
         } else if (result == "$?"){
-            result = status;
+            std::string intToString = std::to_string(status);
+            result = intToString;
+            if (xFlag)
+                cout << "$? is " << result << endl;
         } else if (result == "$!"){
-            result = waitingPid;
+            std::string intToString = std::to_string(waitingPid);
+            result = intToString;
+            if (xFlag)
+                cout << "$! is " << result << endl;
         }
 		arg_vec.push_back(result);
 	}
@@ -130,6 +144,27 @@ int exe(vector<string> arg_vec){
         }
 	}
 
+    // help
+    if (com == "help"){
+
+        pid_t pid;
+        if (pid < 0)
+            perror("Fork Error");
+        else if ((recentPid=pid = fork()) == 0) {
+            fflush(stdout);
+            execlp("vi", "vi", "man/XSSHman",0);
+            perror("execvp error");
+            exit(1);
+        } else{
+            if (!hasAmp){
+                waitpid(pid, &status, 0);
+            }
+            else waitingPid = pid;
+        }
+
+        return Done;
+    }
+
     if (com == "dir"){
         DIR *dir;
         struct dirent *ent;
@@ -152,17 +187,16 @@ int exe(vector<string> arg_vec){
     }
 
     // chdir
-
     if (com == "chdir"){
-        cout << "path: " << getenv("PWD") << endl;
+        //cout << "path: " << getenv("PWD") << endl;
         char * pathIs = getenv("PWD");
-        cout << "pathIS: " << pathIs << endl;
+        //cout << "pathIS: " << pathIs << endl;
         if (arg_vec.size() == 1){
-            cout << "here" << endl;
+            //cout << "here" << endl;
             string putPath = "PWD=";
             string s(hPath);
             putPath += s;
-            cout <<"putPath: " << putPath << endl;
+            //cout <<"putPath: " << putPath << endl;
             setenv("PWD", s.c_str(), 1);
             //putenv(const_cast<char*>(putPath.c_str()));
         }
@@ -174,6 +208,9 @@ int exe(vector<string> arg_vec){
                 // fix this
             else if (arg_vec[1] == "..") {
                 string cutPath(pathIs);
+                if (cutPath.length() == 1){
+                    return Done;
+                }
                 //st = string(dPath).substr(0, string(dPath).size() - 1);
                 int count = 0;
                 for (std::string::reverse_iterator rIter = cutPath.rbegin(); rIter != cutPath.rend(); ++rIter){
@@ -193,7 +230,7 @@ int exe(vector<string> arg_vec){
                 }
                 string stringIs = "PWD=";
                 stringIs += cutPath;
-                cout << "stringIs: " << stringIs << endl;
+                //cout << "stringIs: " << stringIs << endl;
                 setenv("PWD", cutPath.c_str(), 1);
                 //putenv(const_cast<char*>(stringIs.c_str()));
             }
@@ -215,7 +252,7 @@ int exe(vector<string> arg_vec){
                 }
                 changeString += arg_vec[1];
                 stringIs += changeString;
-                cout << "stringIs2: " << stringIs << endl;
+                //cout << "stringIs2: " << stringIs << endl;
                 setenv("PWD", changeString.c_str(), 1);
                 //putenv(const_cast<char*>(stringIs.c_str()));
             }
@@ -354,10 +391,6 @@ int exe(vector<string> arg_vec){
 			cout << it->first << "=" << it->second << '\n';
 		}
 	}
-	// pause (not done)
-	if (com == "pause"){
-
-	}
 	// clr (not done)
 	if (com == "clr") {
         // ANSI/VT100 Terminal Control Escape Sequences
@@ -376,6 +409,7 @@ int exe(vector<string> arg_vec){
 			int value;
 			istringstream conv(com2);
 			conv >> value;
+            isExit = true;
 			return value;
 		}
 		// echo
@@ -392,6 +426,7 @@ int exe(vector<string> arg_vec){
 			}
 			else{
 				env.erase(com2);
+                unsetenv(com2.c_str());
 				return Done;
 			}
 		}
@@ -404,10 +439,10 @@ int exe(vector<string> arg_vec){
 			}
 			else{
 				env.erase(com2);
+                unsetenv(com2.c_str());
 				return Done;
 			}
 		}
-
 	}
 
 	// set, export
@@ -424,6 +459,7 @@ int exe(vector<string> arg_vec){
 			else {
 				iter->second = com3;
 			}
+            setenv(com2.c_str(), com3.c_str(), 1);
 		}
 		if (com == "export"){
 			char* var;

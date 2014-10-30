@@ -1,7 +1,4 @@
-cmake_minimum_required(VERSION 2.8.4)
-project(xssh)
-
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -stdlib=libc++")
-
-set(SOURCE_FILES Shell.cpp External.cpp Command.cpp execvpe.c)
-add_executable(xssh ${SOURCE_FILES})
+cmake_minimum_required (VERSION 2.6)
+project (xssh)
+add_executable(xssh command.cpp external.cpp shell.cpp)
+list( APPEND CMAKE_CXX_FLAGS "-std=c++0x ${CMAKE_CXX_FLAGS} -g -ftest-coverage -fprofile-arcs")

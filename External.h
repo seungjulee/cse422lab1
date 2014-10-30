@@ -1,8 +1,6 @@
 #ifdef WINDOWS
-	#include "stdafx.h"
- 	#define GetCurrentDir _getcwd
+    #include "stdafx.h"
 #else
-    #define GetCurrentDir getcwd
 #endif
 #include <unistd.h>
 #include "Command.h"

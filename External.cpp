@@ -99,23 +99,43 @@ void pipeCommand(char *const envp[], char** cmd1, char** cmd2,int cmd1Size,int c
         }
     }
 }
-int execvpe(char *file_arg, char * argv[], char **envp)
-{
-    char **old_env = environ;
-    environ = envp;
-    execvp(file_arg, argv);
-    // Oops - must have failed!
-    environ = old_env;
-    return(-1);
-}
+//extern int execvpe(const char* name, char* const argv[], char* const envv[])
+//{
+//    register const char*  path = name;
+//    char          buffer[PATH_MAX];
+//
+//    if (*path != '/' && !(path = pathpath(buffer, name, NULL, PATH_REGULAR|PATH_EXECUTE)))
+//        path = name;
+//    execve(path, argv, envv);
+//    if (errno == ENOEXEC)
+//    {
+//        register char**   newargv;
+//        register char**   ov;
+//        register char**   nv;
+//
+//        for (ov = (char**)argv; *ov++;);
+//        if (newargv = newof(0, char*, ov + 1 - (char**)argv, 0))
+//        {
+//            nv = newargv;
+//            *nv++ = "sh";
+//            *nv++ = (char*)path;
+//            ov = (char**)argv;
+//            while (*nv++ = *++ov);
+//            path = pathshell();
+//            execve(path, newargv, envv);
+//            free(newargv);
+//        }
+//        else
+//            errno = ENOMEM;
+//    }
+//    return -1;
+//}
 
 void runExternal(char * envp[], int cmdSize, char ** cstrCmd)
 {
     pid_t pid;
 
-    if (pid < 0)
-        perror("Fork Error");
-    else if ((recentPid=pid = fork()) == 0) {
+    if ((recentPid=pid = fork()) == 0) {
         fflush(stdout);
         //execvp(cstrCmd[0],cstrCmd);
         char **old_env = environ;
@@ -124,12 +144,19 @@ void runExternal(char * envp[], int cmdSize, char ** cstrCmd)
         // Oops - must have failed!
         environ = old_env;
         perror("execvp error");
-    } else if (!hasAmp)
-        waitpid(pid, &status, 0);
-      else waitingPid = pid;
+        exit(1);
+    } else{
+        if (pid < 0)
+            perror("Fork Error");
+
+        if (!hasAmp){
+            waitpid(pid, &status, 0);
+        }
+        else waitingPid = pid;
+    }
 }
 
-void threeCommands(const char * pathname, string sign[], char** cmd1, char** cmd2,char** cmd3,int cmd1Size,int cmd2Size,int cmd3Size){
+void threeCommands(string sign[], char** cmd1, char** cmd2,char** cmd3,int cmd1Size,int cmd2Size,int cmd3Size){
 
     int pipes[4];
     pipe(pipes);
@@ -163,6 +190,7 @@ void threeCommands(const char * pathname, string sign[], char** cmd1, char** cmd
         execvp(cmd1[0], cmd1);
         fflush(stdout);
         perror("execvp failed (1)");
+        exit(1);
     }
     else
     {
@@ -235,7 +263,7 @@ void threeCommands(const char * pathname, string sign[], char** cmd1, char** cmd
         }
     }
 }
-void fourCommands(const char * pathname, string sign[], char** cmd1, char** cmd2,char** cmd3,char** cmd4) {
+void fourCommands(string sign[], char** cmd1, char** cmd2,char** cmd3,char** cmd4) {
     int pipes[6];
     pipe(pipes);
     pipe(pipes+2);
@@ -377,6 +405,7 @@ void fourCommands(const char * pathname, string sign[], char** cmd1, char** cmd2
         }
     }
 }
+
 void checkPipesNumber(vector<string> argvc)
 {
     int MAX_OPERATORS=3;
@@ -386,14 +415,14 @@ void checkPipesNumber(vector<string> argvc)
     int indexes[4]={0};
     string sign[4];
 
-    const char * pathDirectory = getenv("PATH");
-
     //checks Amp
     hasAmp = false;
     if (argvc[argvc.size()-1] == "&"){
         hasAmp = true;
         argvc.pop_back();
+
     }
+
     for(int i = 0; i < argvc.size(); i++){
         if (argvc[i] == "|" || argvc[i] == "<" || argvc[i] == ">" || argvc[i] == "<<" || argvc[i] == ">>") {
             sign[countPipes]=argvc[i];
@@ -415,22 +444,24 @@ void checkPipesNumber(vector<string> argvc)
         idx++;
     }
     int cmd1Size;
+
+    cmd1Size = argvc.size();
+    char *cstrCmd[cmd1Size + 1];
+    for (unsigned int i = 0; i < cmd1Size; i++) {
+        //save right hand side argv in c style format for execlv
+        char *cstr;
+        cstr = new char[argvc[i].size() + 1];
+        strcpy(cstr, argvc[i].c_str());
+        cstrCmd[i] = cstr;
+    }
+    cstrCmd[cmd1Size] = 0;
+\
     int cmd2Size;
     int cmd3Size;
     int cmd4Size;
 
     switch (countPipes){
         case 0: {
-            cmd1Size = argvc.size();
-            char *cstrCmd[cmd1Size + 1];
-            for (unsigned int i = 0; i < cmd1Size; i++) {
-                //save right hand side argv in c style format for execlv
-                char *cstr;
-                cstr = new char[argvc[i].size() + 1];
-                strcpy(cstr, argvc[i].c_str());
-                cstrCmd[i] = cstr;
-            }
-            cstrCmd[cmd1Size] = 0;
             runExternal(envVari,cmd1Size,cstrCmd);
             break;
         }
@@ -511,7 +542,7 @@ void checkPipesNumber(vector<string> argvc)
             }
             cmd3[cmd3Size] = 0;
 
-            threeCommands(pathDirectory, sign, cmd1, cmd2, cmd3, cmd1Size, cmd2Size, cmd3Size);
+            threeCommands(sign, cmd1, cmd2, cmd3, cmd1Size, cmd2Size, cmd3Size);
             break;
         }
         case 3: {
@@ -568,10 +599,11 @@ void checkPipesNumber(vector<string> argvc)
                 cmd4[i - indexes[2]-1] = fourthStr;
             }
             cmd4[cmd4Size] = 0;
-            fourCommands(pathDirectory, sign, cmd1 , cmd2, cmd3, cmd4);
+            fourCommands(sign, cmd1 , cmd2, cmd3, cmd4);
             break;
         }
         default:
+            perror("XSSH does not support more than 3 pipes!");
             break;
     }
 }

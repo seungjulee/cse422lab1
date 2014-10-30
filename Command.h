@@ -1,6 +1,6 @@
 #ifdef WINDOWS
-	#include "stdafx.h"
-	#include <dirent.h>
+    #include "stdafx.h"
+    #include <dirent.h>
 #include <Windows.h>
 #endif
 #include <stdlib.h>

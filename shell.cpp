@@ -3,6 +3,8 @@
 #ifdef WINDOWS
 	#include "stdafx.h"
 #endif
+
+//#include <tclDecls.h>
 #include "Shell.h"
 //#define _XOPEN_SOURCE
 
@@ -14,6 +16,11 @@ extern string command;
 extern map<string, string> env;
 extern char* dPath;
 extern pid_t recentPid;
+extern bool isExit;
+extern bool hasAmp;
+bool firstRun=true;
+bool xFlag = false;
+int dFlag = 0;
 char* hPath;
 
 static const char*  promptString = "xssh>> ";
@@ -34,7 +41,7 @@ void sig_handler(int signum){
 		int_handler = signal(SIGINT, sig_handler);
         if(recentPid>0)
 		    kill(recentPid, signum);
-        //cout << endl;
+        cout << endl;
 	}
 	if (signum == SIGABRT){
 		abrt_handler = (SIGABRT, sig_handler);
@@ -71,7 +78,6 @@ void sig_handler(int signum){
     if (signum == SIGHUP){
         hup_handler = signal(SIGHUP, sig_handler);
     }
-	
 }
 
 void initialize(){
@@ -90,6 +96,9 @@ void initialize(){
     //Parent
     env.insert(pair<string, string>("parent", s));
 
+    setenv("shell", s.c_str(), 1);
+    setenv("home", s.c_str(), 1);
+    setenv("parent", s.c_str(), 1);
 
 
 }
@@ -98,27 +107,51 @@ bool checkInputParams(int argc, char * argv[]){
     bool hasParam = false;
 
     for (int i = 0; i < argc; i++){
-        char * flag = "-f";
-        if (strcmp(flag, argv[i])==0){
+        char fFlags[3];
+        strcpy(fFlags, "-f");
+        char xFlags[3];
+        strcpy(xFlags, "-x");
+        char dFlags[3];
+        strcpy(dFlags, "-d");
+
+        if (strcmp(fFlags, argv[i])==0){
             hasParam = true;
-            int pipes[2];
-            pipe(pipes);
+            int fd;
+            pipe(&fd);
             pid_t pid;
+            fd = open(argv[i+1], O_RDONLY);
+            dup2(fd, 0); // dup into stdin
 
-            pipes[0] = open(argv[i+1], O_RDONLY);
-            dup2(pipes[0], 0); // dup into stdin
-
-            close(pipes[0]);
-            close(pipes[1]);
+            close(fd);
             fflush(stdout);
-        }
-    }
 
+            for (int j=i+2; j < argc; j++){
+                int index = j-i-1;
+                string keyEvn(argv[i]);
+                string indexS = to_string(index);
+                string valEvn= "$"+indexS;
+                env.insert(pair<string, string>(keyEvn, valEvn));
+            }
+        }
+
+        if (strcmp(xFlags, argv[i])==0){
+            xFlag = true;
+        }
+
+        /*if (strcmp(dFlags, argv[i])==0){
+            int a = argv[i+1];
+            char buf [3];
+            itoa(a,buf,10);
+            dFlag = argv[i+1];
+        }*/
+    }
+    firstRun = false;
     return hasParam;
 }
 
 int main(int argc, char * argv[])
-{	
+{
+    int sin_cpy = dup(0);
 	hPath = getenv("PWD");
 	int_handler = signal(SIGINT, sig_handler);
 	abrt_handler = signal(SIGABRT, sig_handler);
@@ -135,21 +168,28 @@ int main(int argc, char * argv[])
 
 	while (1){
 		cin.clear();
-		printf("%s", promptString);
+
+        printf("%s", promptString);
 		fflush(stdout);
-
-        checkInputParams(argc,argv);
-
+        if (firstRun) {
+            checkInputParams(argc, argv);
+        } else {
+            dup2(sin_cpy, 0);
+        }
 		getline(cin, command);
         // Utilizing label to be used for the repeat command.
         label:
 		if (command.length() < 1) {
             continue;
         }
+
 		parse_command(command);
 
 		if (built_in_command(arg_vec[0])){
 			int result = exe(arg_vec);
+            if (isExit){
+                return result;
+            }
 			if (result == Pause){
                 raise(SIGSTOP);
                 cin.clear();
@@ -165,18 +205,16 @@ int main(int argc, char * argv[])
                 arg_vec.clear();
                 goto label;
             }
-            else if (result != Done){
-				return result;
-			}
-			else {
-				arg_vec.clear();
-				continue; 
+            else if (result == Done){
+                arg_vec.clear();
+                continue;
 			}
 		} else {
             checkPipesNumber(arg_vec);
         }
-
-		arg_vec.clear();
+        //close(1);
+        //dup2(0,0);
+		arg_vec.clear(arg_vec);
 	}
 
 	return 0;
